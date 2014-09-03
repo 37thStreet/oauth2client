@@ -39,7 +39,6 @@ from oauth2client.client import AccessTokenCredentials
 from oauth2client.client import AccessTokenCredentialsError
 from oauth2client.client import AccessTokenRefreshError
 from oauth2client.client import AssertionCredentials
-from oauth2client.client import AUTHORIZED_USER
 from oauth2client.client import Credentials
 from oauth2client.client import ApplicationDefaultCredentialsError
 from oauth2client.client import FlowExchangeError
@@ -51,7 +50,6 @@ from oauth2client.client import OAuth2Credentials
 from oauth2client.client import OAuth2WebServerFlow
 from oauth2client.client import OOB_CALLBACK_URN
 from oauth2client.client import REFRESH_STATUS_CODES
-from oauth2client.client import SERVICE_ACCOUNT
 from oauth2client.client import Storage
 from oauth2client.client import TokenRevokeError
 from oauth2client.client import VerifyJwtTokenError
@@ -69,6 +67,8 @@ from oauth2client.client import credentials_from_code
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.client import save_to_well_known_file
 from oauth2client.clientsecrets import _loadfile
+from oauth2client.google_credentials_json import GoogleCredentialsJson
+from oauth2client.google_credentials_json import InvalidCredentialModelError
 from oauth2client.service_account import _ServiceAccountCredentials
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
@@ -317,11 +317,11 @@ class GoogleCredentialsTests(unittest.TestCase):
     try:
       _get_application_default_credential_from_file(credentials_file)
       self.fail('An exception was expected!')
-    except ApplicationDefaultCredentialsError as error:
-      self.assertEqual("'type' field should be defined "
-                       "(and have one of the '" + AUTHORIZED_USER +
-                       "' or '" + SERVICE_ACCOUNT + "' values)",
-                       str(error))
+    except InvalidCredentialModelError as error:
+      self.assertEqual('\'type\' field should be defined (and have one of ' +
+                       'the \'' + GoogleCredentialsJson.TYPE_AUTHORIZED_USER +
+                       '\' or \'' + GoogleCredentialsJson.TYPE_SERVICE_ACCOUNT +
+                       '\' values)', str(error))
 
   def test_get_application_default_credential_from_malformed_file_2(self):
     credentials_file = datafile(
@@ -331,7 +331,7 @@ class GoogleCredentialsTests(unittest.TestCase):
     try:
       _get_application_default_credential_from_file(credentials_file)
       self.fail('An exception was expected!')
-    except ApplicationDefaultCredentialsError as error:
+    except InvalidCredentialModelError as error:
       self.assertEqual('The following field(s) must be defined: private_key_id',
                        str(error))
 
@@ -422,12 +422,12 @@ class GoogleCredentialsTests(unittest.TestCase):
       self.fail('An exception was expected!')
     except ApplicationDefaultCredentialsError as error:
       self.assertEqual(
-          "The Application Default Credentials are not available. They are "
-          "available if running in Google Compute Engine.  Otherwise, the "
-          " environment variable " + GOOGLE_APPLICATION_CREDENTIALS +
-          " must be defined pointing to a file defining the credentials. "
-          "See https://developers.google.com/accounts/docs/application-default-"
-          "credentials for more information.",
+          'The Application Default Credentials are not available. They are '
+          'available if running in Google Compute Engine.  Otherwise, the '
+          ' environment variable ' + GOOGLE_APPLICATION_CREDENTIALS +
+          ' must be defined pointing to a file defining the credentials. '
+          'See https://developers.google.com/accounts/docs/application-default-'
+          'credentials for more information.',
           str(error))
 
   def test_from_stream_service_account(self):
@@ -454,12 +454,13 @@ class GoogleCredentialsTests(unittest.TestCase):
       self.get_a_google_credentials_object().from_stream(credentials_file)
       self.fail('An exception was expected!')
     except ApplicationDefaultCredentialsError as error:
-      self.assertEqual("An error was encountered while reading json file: " +
-                       credentials_file +
-                       " (provided as parameter to the from_stream() method): "
-                       "'type' field should be defined (and have one of the '" +
-                       AUTHORIZED_USER + "' or '" + SERVICE_ACCOUNT +
-                       "' values)",
+      self.assertEqual('An error was encountered while reading json file: ' +
+                       credentials_file + ' (provided as parameter to the ' +
+                       'from_stream() method): \'type\' field should be ' +
+                       'defined (and have one of the \'' +
+                       GoogleCredentialsJson.TYPE_AUTHORIZED_USER + '\' or \'' +
+                       GoogleCredentialsJson.TYPE_SERVICE_ACCOUNT +
+                       '\' values)',
                        str(error))
 
   def test_from_stream_malformed_file_2(self):

@@ -32,6 +32,8 @@ import urllib
 import urlparse
 
 import httplib2
+from google_credentials_json import GoogleCredentialsJson
+from google_credentials_json import InvalidCredentialModelError
 from oauth2client import GOOGLE_AUTH_URI
 from oauth2client import GOOGLE_DEVICE_URI
 from oauth2client import GOOGLE_REVOKE_URI
@@ -65,12 +67,6 @@ OOB_CALLBACK_URN = 'urn:ietf:wg:oauth:2.0:oob'
 
 # Google Data client libraries may need to set this to [401, 403].
 REFRESH_STATUS_CODES = [401]
-
-# The value representing user credentials.
-AUTHORIZED_USER = 'authorized_user'
-
-# The value representing service account credentials.
-SERVICE_ACCOUNT = 'service_account'
 
 # The environment variable pointing the file with local
 # Application Default Credentials.
@@ -952,9 +948,12 @@ class GoogleCredentials(OAuth2Credentials):
   </code>
   """
 
+  # User agent to use, if not provided.
+  DEFAULT_USER_AGENT = 'Python client library'
+
   def __init__(self, access_token, client_id, client_secret, refresh_token,
-               token_expiry, token_uri, user_agent,
-               revoke_uri=GOOGLE_REVOKE_URI):
+               token_expiry, token_uri=GOOGLE_TOKEN_URI,
+               user_agent=DEFAULT_USER_AGENT, revoke_uri=GOOGLE_REVOKE_URI):
     """Create an instance of GoogleCredentials.
 
     This constructor is not usually called by the user, instead
@@ -994,19 +993,20 @@ class GoogleCredentials(OAuth2Credentials):
 
   @property
   def serialization_data(self):
-    """Get the fields and their values identifying the current credentials."""
-    return {
-        'type': 'authorized_user',
-        'client_id': self.client_id,
-        'client_secret': self.client_secret,
-        'refresh_token': self.refresh_token
-    }
+    """Get the fields and their values identifying the current credentials.
+
+    Returns:
+      a dict serialized representation of this authorized user credential
+    """
+    return GoogleCredentialsJson.serialize_data(
+        GoogleCredentialsJson.TYPE_AUTHORIZED_USER, client_id=self.client_id,
+        client_secret=self.client_secret, refresh_token=self.refresh_token)
 
   @staticmethod
   def get_application_default():
     """Get the Application Default Credentials for the current environment.
 
-    Exceptions:
+    Raises:
       ApplicationDefaultCredentialsError: raised when the credentials fail
                                           to be retrieved.
     """
@@ -1046,12 +1046,12 @@ class GoogleCredentials(OAuth2Credentials):
       return _get_application_default_credential_GCE()
     else:
       raise ApplicationDefaultCredentialsError(
-          "The Application Default Credentials are not available. They are "
-          "available if running in Google Compute Engine.  Otherwise, the "
-          " environment variable " + GOOGLE_APPLICATION_CREDENTIALS +
-          " must be defined pointing to a file defining the credentials. "
-          "See https://developers.google.com/accounts/docs/application-default-"
-          "credentials for more information.")
+          'The Application Default Credentials are not available. They are '
+          'available if running in Google Compute Engine.  Otherwise, the '
+          ' environment variable ' + GOOGLE_APPLICATION_CREDENTIALS +
+          ' must be defined pointing to a file defining the credentials. '
+          'See https://developers.google.com/accounts/docs/application-default-'
+          'credentials for more information.')
 
   @staticmethod
   def from_stream(credential_filename):
@@ -1063,7 +1063,7 @@ class GoogleCredentials(OAuth2Credentials):
       credential_filename: the path to the file from where the credentials
         are to be read
 
-    Exceptions:
+    Raises:
       ApplicationDefaultCredentialsError: raised when the credentials fail
                                           to be retrieved.
     """
@@ -1072,7 +1072,7 @@ class GoogleCredentials(OAuth2Credentials):
       try:
         return _get_application_default_credential_from_file(
             credential_filename)
-      except (ApplicationDefaultCredentialsError, ValueError) as error:
+      except (InvalidCredentialModelError, ValueError) as error:
         extra_help = ' (provided as parameter to the from_stream() method)'
         _raise_exception_for_reading_json(credential_filename,
                                           extra_help,
@@ -1101,7 +1101,6 @@ def save_to_well_known_file(credentials, well_known_file=None):
     well_known_file = _get_well_known_file()
 
   credentials_data = credentials.serialization_data
-
   with open(well_known_file, 'w') as f:
     json.dump(credentials_data, f, sort_keys=True, indent=2)
 
@@ -1157,40 +1156,42 @@ def _get_application_default_credential_from_file(
   # read the credentials from the file
   with open(application_default_credential_filename) as (
       application_default_credential):
-    client_credentials = json.load(application_default_credential)
+    client_credentials = GoogleCredentialsJson.load(
+        application_default_credential)
 
-  credentials_type = client_credentials.get('type')
-  if credentials_type == AUTHORIZED_USER:
-    required_fields = set(['client_id', 'client_secret', 'refresh_token'])
-  elif credentials_type == SERVICE_ACCOUNT:
-    required_fields = set(['client_id', 'client_email', 'private_key_id',
-                           'private_key'])
-  else:
-    raise ApplicationDefaultCredentialsError(
-        "'type' field should be defined (and have one of the '" +
-        AUTHORIZED_USER + "' or '" + SERVICE_ACCOUNT + "' values)")
-
-  missing_fields = required_fields.difference(client_credentials.keys())
-
-  if missing_fields:
-    _raise_exception_for_missing_fields(missing_fields)
-
-  if client_credentials['type'] == AUTHORIZED_USER:
+  if (client_credentials[GoogleCredentialsJson.TYPE_FIELD_NAME] ==
+      GoogleCredentialsJson.TYPE_AUTHORIZED_USER):
     return GoogleCredentials(
         access_token=None,
-        client_id=client_credentials['client_id'],
-        client_secret=client_credentials['client_secret'],
-        refresh_token=client_credentials['refresh_token'],
+        client_id=client_credentials[
+            GoogleCredentialsJson.CLIENT_ID_FIELD_NAME],
+        client_secret=client_credentials[
+            GoogleCredentialsJson.CLIENT_SECRET_FIELD_NAME],
+        refresh_token=client_credentials[
+            GoogleCredentialsJson.REFRESH_TOKEN_FIELD_NAME],
         token_expiry=None,
-        token_uri=GOOGLE_TOKEN_URI,
-        user_agent='Python client library')
-  else:  # client_credentials['type'] == SERVICE_ACCOUNT
+        token_uri=client_credentials[
+            GoogleCredentialsJson.TOKEN_URI_FIELD_NAME],
+        revoke_uri=client_credentials[
+            GoogleCredentialsJson.REVOKE_URI_FIELD_NAME])
+  if (client_credentials[GoogleCredentialsJson.TYPE_FIELD_NAME] ==
+      GoogleCredentialsJson.TYPE_SERVICE_ACCOUNT):
     return service_account._ServiceAccountCredentials(
-        service_account_id=client_credentials['client_id'],
-        service_account_email=client_credentials['client_email'],
-        private_key_id=client_credentials['private_key_id'],
-        private_key_pkcs8_text=client_credentials['private_key'],
+        service_account_id=client_credentials[
+            GoogleCredentialsJson.CLIENT_ID_FIELD_NAME],
+        service_account_email=client_credentials[
+            GoogleCredentialsJson.CLIENT_EMAIL_FIELD_NAME],
+        private_key_id=client_credentials[
+            GoogleCredentialsJson.PRIVATE_KEY_ID_FIELD_NAME],
+        private_key_pkcs8_text=client_credentials[
+            GoogleCredentialsJson.PRIVATE_KEY_FIELD_NAME],
+        token_uri=client_credentials[
+            GoogleCredentialsJson.TOKEN_URI_FIELD_NAME],
+        revoke_uri=client_credentials[
+            GoogleCredentialsJson.REVOKE_URI_FIELD_NAME],
         scopes=[])
+  raise ApplicationDefaultCredentialsError(
+      'Provided credential did not contain an acceptable type.')
 
 
 def _raise_exception_for_missing_fields(missing_fields):
